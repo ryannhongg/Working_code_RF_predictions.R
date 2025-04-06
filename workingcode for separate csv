@@ -1,0 +1,71 @@
+library(stringr)
+library(ggpubr)
+library(rstatix)
+library(umap)
+library(ggrepel)
+library(randomForest)
+library(caret)
+library(gtools)
+library(tidyr)
+library(dplyr)
+library(openxlsx)
+
+getwd()
+setwd("C:/Users/Administrator/Downloads/CMB_Project/CMB_copy")
+
+file_path <- './Data/UCD_CCRCC_oldKI-02_Level=0_MAG=40X_ST_Norm_20240201_SDR_ite100_nb256_s30_b0_np1000_nlayers_1_20200616194459_meanp_N.xlsx'
+testdata <- read.xlsx(file_path, sheet = 1, rowNames = TRUE)
+
+# Gene list
+genelist <- c('DYRK3', 'HRC', 'PODXL', 'STARD8', 'PPM1F', 'C20orf24', 'YARS2', 
+              'C14orf139', 'ARHGEF15', 'BCL6B', 'FAM101B', 'INPP5A', 'ZBTB46', 
+              'DOCK6', 'SOX13', 'PCDH12', 'PDE2A', 'RASIP1', 'FGD5', 'PSAT1')
+
+# Separate folder for saving predictions
+output_folder <- 'C:/Users/Administrator/Downloads/CMB_Project/CMB_copy/Predictions_Folder/'
+dir.create(output_folder, showWarnings = FALSE)
+
+for (genename in genelist) {
+  
+  # File path for rds
+  results_root <- paste('./Results/TCGA_KIRC_CMB_Analysis/', genename, '_nfold10', sep = '')
+  print(results_root)
+  
+  predictions <- data.frame(PatientID = rownames(testdata))
+  print(paste("processing models for gene:", genename))
+  
+  num_iter = 10 # set the number of folds = number of models per gene
+  
+  for(iter in c(1:num_iter)) { # iterate all the models per gene, and make predictions
+    # Construct the file path for each model
+    my_rf_fn <- paste('C:/Users/Administrator/Downloads/CMB_Project/CMB_copy/Results/TCGA_KIRC_CMB_Analysis/', 
+                      genename, '_nfold10/', 'rfmodel-fold', iter, '.rds', sep = '')
+    
+    if (file.exists(my_rf_fn)) {
+      # Load the model
+      my_rf <- readRDS(my_rf_fn)
+      
+      # Make predictions on the test data
+      testdata[, paste(genename, '_predicted_by_model_', iter, sep = '')] <- predict(my_rf, testdata)
+      
+    } else {
+      print(paste("model file does not exist:", my_rf_fn))
+    }
+  }
+  
+  # Calculate the average prediction for this gene
+  prediction_columns <- grep(paste(genename, '_predicted_by_model_', sep = ''), colnames(testdata))
+  
+  # Save the predictions to a new csv file in the separate folder
+  if (length(prediction_columns) > 0) {
+    testdata[, paste(genename, '_average_predicted', sep = '')] <- rowMeans(testdata[, prediction_columns])
+    
+    # Save the predictions in a new CSV file for each gene
+    output_filename <- paste0(genename, '_predictions.csv')  # Save with gene name
+    write.csv(testdata, file.path(output_folder, output_filename), row.names = TRUE)
+    
+    print(paste("Predictions for gene", genename, "saved to", output_filename))
+  } else {
+    print(paste("No valid models found for gene", genename, "- skipping save."))
+  }
+}
